@@ -1,0 +1,1264 @@
+{
+  "info": {
+    "_postman_id": "c14b3294-0c57-4e7e-a0d1-382b15fddb81",
+    "name": "Hong Tra Le Gia Mobile API",
+    "description": "Postman requests matching tai-lieu-api-mobile-app.md. Local development defaults to http://localhost:5000. Authenticated requests use accessToken saved by Register/Login. External provider endpoints are included but the current backend returns 503 until configured.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "55218220",
+    "_collection_link": "https://go.postman.co/collection/55218220-c14b3294-0c57-4e7e-a0d1-382b15fddb81?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Register customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { const d = pm.response.json().data; pm.environment.set('accessToken', d.accessToken); pm.environment.set('refreshToken', d.refreshToken); pm.environment.set('customerId', d.user.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nguyen Hoang Nam\",\n  \"phone\": \"0988776655\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"Password@123\",\n  \"role\": \"CUSTOMER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const d = pm.response.json().data; pm.environment.set('accessToken', d.accessToken); pm.environment.set('refreshToken', d.refreshToken); pm.environment.set('customerId', d.user.id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"Password@123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const d = pm.response.json().data; pm.environment.set('accessToken', d.accessToken); pm.environment.set('refreshToken', d.refreshToken); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh-token"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get current customer",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code >= 200 && pm.response.code < 300) { pm.environment.unset('accessToken'); pm.environment.unset('refreshToken'); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Home and promotions",
+      "item": [
+        {
+          "name": "Bootstrap app data",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bootstrap",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bootstrap"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List campaigns",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/campaigns",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "campaigns"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List vouchers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/vouchers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "vouchers"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Products and menu",
+      "item": [
+        {
+          "name": "List categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "categories"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List products",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) { const rows = pm.response.json().data; if (Array.isArray(rows) && rows.length) pm.environment.set('productId', rows[0]._id || rows[0].id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products?categoryId={{categoryId}}&search={{search}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "categoryId",
+                  "value": "{{categoryId}}"
+                },
+                {
+                  "key": "search",
+                  "value": "{{search}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List toppings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/toppings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "toppings"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get product by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "{{productId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Branches",
+      "item": [
+        {
+          "name": "List branches",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/branches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "branches"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Voucher validation",
+      "item": [
+        {
+          "name": "Validate voucher",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LEGIA20\",\n  \"orderTotal\": 92000,\n  \"customerId\": \"{{customerId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/vouchers/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "vouchers",
+                "validate"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Orders and tax invoice",
+      "item": [
+        {
+          "name": "Create delivery order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) { const d = pm.response.json().data; pm.environment.set('orderId', d.id); pm.environment.set('orderNumber', d.orderNumber); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branchId\": \"b-cau-giay\",\n  \"orderType\": \"DELIVERY\",\n  \"source\": \"APP\",\n  \"customerName\": \"Nguyen Hoang Nam\",\n  \"customerPhone\": \"0988776655\",\n  \"deliveryAddress\": \"123 Cau Giay, Ha Noi\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"productName\": \"Product from menu\",\n      \"quantity\": 2,\n      \"customization\": {\n        \"sizeId\": \"L\",\n        \"toppingIds\": []\n      },\n      \"note\": \"\"\n    }\n  ],\n  \"paymentMethod\": \"CASH\",\n  \"voucherCode\": \"LEGIA20\",\n  \"needCorporateInvoice\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Tax code lookup (provider required)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/invoices/tax-lookup/{{taxCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "invoices",
+                "tax-lookup",
+                "{{taxCode}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List my orders",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/my-orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "my-orders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get order details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. mQR payments",
+      "item": [
+        {
+          "name": "List supported banks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/mqr/banks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "mqr",
+                "banks"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate VietQR (provider required)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"bankCode\": \"VCB\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/mqr/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "mqr",
+                "generate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get payment status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/mqr/status/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payments",
+                "mqr",
+                "status",
+                "{{orderId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Invoice files (provider required)",
+      "item": [
+        {
+          "name": "Download invoice PDF",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/invoices/{{orderId}}/print",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "invoices",
+                "{{orderId}}",
+                "print"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get invoice XML",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/invoices/{{orderId}}/xml",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "invoices",
+                "{{orderId}}",
+                "xml"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "9. Loyalty",
+      "item": [
+        {
+          "name": "Get customer and points history",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/{{customerId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerId}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10. Push notifications",
+      "item": [
+        {
+          "name": "Register device token",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Client-Platform",
+                "value": "mobile"
+              },
+              {
+                "key": "X-App-Version",
+                "value": "1.0.0"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "postman-local"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"replace-with-firebase-token\",\n  \"platform\": \"android\",\n  \"deviceModel\": \"Postman test device\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customers/register-device",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "register-device"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

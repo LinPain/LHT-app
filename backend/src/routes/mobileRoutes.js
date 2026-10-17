@@ -1,0 +1,449 @@
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
+const nodemailer = require('nodemailer');
+const Customer = require('../models/Customer');
+const SignupEmailVerification = require('../models/SignupEmailVerification');
+const Order = require('../models/Order');
+const Voucher = require('../models/Voucher');
+const Notification = require('../models/Notification');
+const Product = require('../models/Product');
+const { normalizeOrderItems } = require('../services/orderPricingService');
+const requireAuth = require('../middleware/requireAuth');
+const optionalAuth = async (req, res, next) => {
+  if (!req.headers.authorization) return next();
+  return requireAuth(req, res, next);
+};
+
+const router = express.Router();
+const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
+const safeCustomer = (customer) => ({ id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, role: customer.role, membershipTier: customer.membershipTier, loyaltyPoints: customer.loyaltyPoints });
+const success = (res, data, message) => res.json({ success: true, ...(message ? { message } : {}), data });
+async function issueTokens(customer) {
+  const refreshToken = crypto.randomBytes(48).toString('hex');
+  customer.refreshTokenHash = hash(refreshToken);
+  await customer.save();
+  return { user: safeCustomer(customer), accessToken: jwt.sign({ sub: customer.id, role: customer.role }, process.env.JWT_SECRET, { expiresIn: '15m' }), refreshToken, expiresIn: 900 };
+}
+const branches = [{ id: 'b-cau-giay', name: 'Hồng Trà Lê Gia - Cầu Giấy', address: '123 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội', phone: '024 3838 9999', isOpen: true, openTime: '08:00', closeTime: '22:30', gps: { latitude: 21.036237, longitude: 105.790583 } }];
+async function seedDemoVoucher() {
+  if (process.env.NODE_ENV === 'production') return;
+  const now = new Date();
+  const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  await Voucher.updateOne({ code: 'LEGIA20' }, { $setOnInsert: { code: 'LEGIA20', title: 'Ưu đãi khách hàng mới', discountPercent: 20, maxDiscount: 30000, minOrderTotal: 0, startDate: now, endDate, isActive: true } }, { upsert: true });
+}
+
+router.post('/auth/register/request-code', async (req, res, next) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const phone = String(req.body.phone || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!name || !phone || !/^\S+@\S+\.\S+$/.test(email)) {
+      return res.status(400).json({ success: false, error: 'Nhập họ tên, số điện thoại và email hợp lệ.', code: 'VALIDATION_ERROR' });
+    }
+    if (await Customer.findOne({ $or: [{ email }, { phone }] })) {
+      return res.status(409).json({ success: false, error: 'Email hoặc số điện thoại đã được sử dụng.', code: 'ACCOUNT_EXISTS' });
+    }
+    const host = process.env.SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT || 587);
+    const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+    if (!host || !from || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(503).json({ success: false, error: 'Dịch vụ gửi email chưa được cấu hình.', code: 'EMAIL_NOT_CONFIGURED' });
+    }
+    const now = new Date();
+    let verification = await SignupEmailVerification.findOne({ email });
+    if (verification && now - verification.lastSentAt < 60_000) {
+      return success(res, { accepted: true }, 'Nếu email có thể đăng ký, mã xác thực sẽ được gửi đến hộp thư.');
+    }
+    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    if (!verification) verification = new SignupEmailVerification({ email });
+    verification.codeHash = hash(code);
+    verification.expiresAt = new Date(now.getTime() + 10 * 60_000);
+    verification.attempts = 0;
+    verification.lastSentAt = now;
+    await verification.save();
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: process.env.SMTP_SECURE === 'true' || port === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+    try {
+      await transporter.sendMail({
+        from,
+        to: email,
+        subject: 'Xác thực email đăng ký - Hồng Trà Lê Gia',
+        text: `Mã xác thực đăng ký của bạn là ${code}. Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.`,
+        html: `<div style="font-family:Arial,sans-serif;color:#222"><h2>Hồng Trà Lê Gia</h2><p>Mã xác thực email đăng ký:</p><p style="font-size:28px;font-weight:bold;letter-spacing:8px;color:#a94700">${code}</p><p>Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p></div>`,
+      });
+    } catch (mailError) {
+      await verification.deleteOne();
+      return next(mailError);
+    }
+    return success(res, { accepted: true }, 'Nếu email có thể đăng ký, mã xác thực sẽ được gửi đến hộp thư.');
+  } catch (error) { next(error); }
+});
+
+router.post('/auth/register', async (req, res, next) => {
+  try {
+    const { name, phone, password } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+    if (!name || !phone || !/^\S+@\S+\.\S+$/.test(email) || !/^\d{6}$/.test(code) || !password) {
+      return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ thông tin và mã xác thực.', code: 'VALIDATION_ERROR' });
+    }
+    if (String(password).length < 8) return res.status(400).json({ success: false, error: 'Mật khẩu cần ít nhất 8 ký tự.', code: 'VALIDATION_ERROR' });
+    const verification = await SignupEmailVerification.findOne({ email });
+    const now = new Date();
+    if (!verification || !verification.codeHash || !verification.expiresAt || verification.expiresAt <= now || verification.attempts >= 5) {
+      return res.status(400).json({ success: false, error: 'Mã xác thực không hợp lệ hoặc đã hết hạn. Hãy yêu cầu mã mới.', code: 'SIGNUP_CODE_INVALID' });
+    }
+    const actualHash = Buffer.from(hash(code), 'hex');
+    const expectedHash = Buffer.from(verification.codeHash, 'hex');
+    if (expectedHash.length !== actualHash.length || !crypto.timingSafeEqual(expectedHash, actualHash)) {
+      verification.attempts += 1;
+      await verification.save();
+      return res.status(400).json({ success: false, error: 'Mã xác thực không chính xác.', code: 'SIGNUP_CODE_INVALID' });
+    }
+    if (await Customer.findOne({ $or: [{ email }, { phone: String(phone).trim() }] })) {
+      await verification.deleteOne();
+      return res.status(409).json({ success: false, error: 'Email hoặc số điện thoại đã được sử dụng.', code: 'ACCOUNT_EXISTS' });
+    }
+    const customer = await Customer.create({
+      name: String(name).trim(),
+      phone: String(phone).trim(),
+      email,
+      passwordHash: await bcrypt.hash(password, 12),
+    });
+    await verification.deleteOne();
+    return res.status(201).json({ success: true, message: 'Đăng ký tài khoản thành công.', data: await issueTokens(customer) });
+  } catch (error) { next(error); }
+});
+
+router.post('/auth/login', async (req, res, next) => {
+  try {
+    const customer = await Customer.findOne({ email: String(req.body.email || '').trim().toLowerCase() });
+    if (!customer || !(await bcrypt.compare(req.body.password || '', customer.passwordHash))) return res.status(401).json({ success: false, error: 'Email hoặc mật khẩu không đúng.', code: 'INVALID_CREDENTIALS' });
+    success(res, await issueTokens(customer), 'Đăng nhập thành công.');
+  } catch (error) { next(error); }
+});
+router.post('/auth/change-password', requireAuth, async (req, res, next) => {
+  try {
+    const currentPassword = String(req.body.currentPassword || '');
+    const newPassword = String(req.body.newPassword || '');
+    if (!currentPassword || newPassword.length < 8) {
+      return res.status(400).json({ success: false, error: 'Nhập mật khẩu hiện tại và mật khẩu mới có ít nhất 8 ký tự.', code: 'VALIDATION_ERROR' });
+    }
+    if (!(await bcrypt.compare(currentPassword, req.customer.passwordHash))) {
+      return res.status(400).json({ success: false, error: 'Mật khẩu hiện tại không chính xác.', code: 'CURRENT_PASSWORD_INVALID' });
+    }
+    if (await bcrypt.compare(newPassword, req.customer.passwordHash)) {
+      return res.status(400).json({ success: false, error: 'Mật khẩu mới phải khác mật khẩu hiện tại.', code: 'PASSWORD_UNCHANGED' });
+    }
+    req.customer.passwordHash = await bcrypt.hash(newPassword, 12);
+    await req.customer.save();
+    return success(res, { passwordChanged: true }, 'Mật khẩu đã được cập nhật.');
+  } catch (error) { next(error); }
+});
+
+router.post('/auth/forgot-password', async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      return res.status(400).json({ success: false, error: 'Vui lòng nhập địa chỉ email hợp lệ.', code: 'VALIDATION_ERROR' });
+    }
+
+    const host = process.env.SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT || 587);
+    const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+    if (!host || !from || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(503).json({ success: false, error: 'Dịch vụ gửi email chưa được cấu hình.', code: 'EMAIL_NOT_CONFIGURED' });
+    }
+
+    const customer = await Customer.findOne({ email });
+    if (!customer) return success(res, { accepted: true }, 'Nếu email đã đăng ký, mã xác thực sẽ được gửi đến hộp thư.');
+
+    const now = new Date();
+    if (customer.passwordResetLastSentAt && now - customer.passwordResetLastSentAt < 60_000) {
+      return success(res, { accepted: true }, 'Nếu email đã đăng ký, mã xác thực sẽ được gửi đến hộp thư.');
+    }
+
+    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+    customer.passwordResetCodeHash = hash(code);
+    customer.passwordResetCodeExpiresAt = new Date(now.getTime() + 10 * 60_000);
+    customer.passwordResetCodeAttempts = 0;
+    customer.passwordResetLastSentAt = now;
+    await customer.save();
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: process.env.SMTP_SECURE === 'true' || port === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+    try {
+      await transporter.sendMail({
+        from,
+        to: customer.email,
+        subject: 'Mã xác thực đặt lại mật khẩu - Hồng Trà Lê Gia',
+        text: `Mã xác thực đặt lại mật khẩu của bạn là ${code}. Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.`,
+        html: `<div style="font-family:Arial,sans-serif;color:#222"><h2>Hồng Trà Lê Gia</h2><p>Mã xác thực đặt lại mật khẩu của bạn:</p><p style="font-size:28px;font-weight:bold;letter-spacing:8px;color:#a94700">${code}</p><p>Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p></div>`,
+      });
+    } catch (mailError) {
+      customer.passwordResetCodeHash = null;
+      customer.passwordResetCodeExpiresAt = null;
+      await customer.save();
+      return next(mailError);
+    }
+
+    return success(res, { accepted: true }, 'Nếu email đã đăng ký, mã xác thực sẽ được gửi đến hộp thư.');
+  } catch (error) { next(error); }
+});
+
+router.post('/auth/reset-password', async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+    const password = String(req.body.password || '');
+    if (!/^\S+@\S+\.\S+$/.test(email) || !/^\d{6}$/.test(code) || password.length < 8) {
+      return res.status(400).json({ success: false, error: 'Email, mã xác thực hoặc mật khẩu chưa hợp lệ.', code: 'VALIDATION_ERROR' });
+    }
+
+    const customer = await Customer.findOne({ email });
+    const now = new Date();
+    if (!customer || !customer.passwordResetCodeHash || !customer.passwordResetCodeExpiresAt ||
+        customer.passwordResetCodeExpiresAt <= now || customer.passwordResetCodeAttempts >= 5) {
+      return res.status(400).json({ success: false, error: 'Mã không hợp lệ hoặc đã hết hạn. Hãy yêu cầu mã mới.', code: 'RESET_CODE_INVALID' });
+    }
+    const suppliedHash = hash(code);
+    const expectedHash = Buffer.from(customer.passwordResetCodeHash, 'hex');
+    const actualHash = Buffer.from(suppliedHash, 'hex');
+    if (expectedHash.length !== actualHash.length || !crypto.timingSafeEqual(expectedHash, actualHash)) {
+      customer.passwordResetCodeAttempts += 1;
+      await customer.save();
+      return res.status(400).json({ success: false, error: 'Mã xác thực không chính xác.', code: 'RESET_CODE_INVALID' });
+    }
+
+    customer.passwordHash = await bcrypt.hash(password, 12);
+    customer.passwordResetCodeHash = null;
+    customer.passwordResetCodeExpiresAt = null;
+    customer.passwordResetCodeAttempts = 0;
+    customer.refreshTokenHash = null;
+    await customer.save();
+    return success(res, { passwordReset: true }, 'Mật khẩu đã được cập nhật.');
+  } catch (error) { next(error); }
+});
+router.post('/auth/refresh-token', async (req, res, next) => {
+  try {
+    const refreshToken = req.body.refreshToken;
+    const customer = refreshToken ? await Customer.findOne({ refreshTokenHash: hash(refreshToken) }) : null;
+    if (!customer) return res.status(401).json({ success: false, error: 'Phiên làm việc hết hạn.' });
+    success(res, await issueTokens(customer), 'Làm mới phiên làm việc thành công.');
+  } catch (error) { next(error); }
+});
+router.get('/auth/me', requireAuth, (req, res) => success(res, safeCustomer(req.customer)));
+router.post('/auth/logout', requireAuth, async (req, res, next) => {
+  try { req.customer.refreshTokenHash = null; await req.customer.save(); success(res, { loggedOut: true }, 'Đã đăng xuất.'); }
+  catch (error) { next(error); }
+});
+
+router.get('/bootstrap', async (req, res, next) => {
+  try {
+    await seedDemoVoucher();
+    const products = await Product.find({ isAvailable: true }).sort({ createdAt: -1 }).lean();
+    const categories = [...new Set(products.map((product) => product.category))].map((name, i) => ({ id: `cat-${i + 1}`, name }));
+    const toppings = [...new Map(products.flatMap((product) => product.toppings || []).map((item) => [item.name, { id: item.name, name: item.name, price: item.extraPrice, isAvailable: true }])).values()];
+    const vouchers = await Voucher.find({ isActive: true }).lean();
+    success(res, { branches, categories, products, toppings, vouchers, campaigns: [] });
+  } catch (error) { next(error); }
+});
+router.get('/customers/campaigns', (req, res) => success(res, [{ id: 'camp-legia20', title: 'Ưu đãi khách hàng mới', bannerUrl: '', startDate: new Date().toISOString().slice(0, 10), endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), voucherCode: 'LEGIA20' }]));
+router.get('/customers/vouchers', async (req, res, next) => {
+  try { await seedDemoVoucher(); success(res, await Voucher.find({ isActive: true }).lean()); } catch (error) { next(error); }
+});
+router.get('/products/categories', async (req, res, next) => {
+  try { const values = await Product.distinct('category', { isAvailable: true }); success(res, values.map((name, i) => ({ id: `cat-${i + 1}`, name }))); }
+  catch (error) { next(error); }
+});
+router.get('/products/toppings', async (req, res, next) => {
+  try {
+    const products = await Product.find({ isAvailable: true }, 'toppings').lean();
+    const items = new Map();
+    products.flatMap((p) => p.toppings || []).forEach((item) => items.set(item.name, { id: item.name, name: item.name, price: item.extraPrice, isAvailable: true }));
+    success(res, [...items.values()]);
+  } catch (error) { next(error); }
+});
+router.get('/branches', (req, res) => success(res, branches));
+router.post('/customers/vouchers/validate', async (req, res, next) => {
+  try {
+    await seedDemoVoucher();
+    const code = String(req.body.code || '').trim().toUpperCase();
+    const orderTotal = Number(req.body.orderTotal || 0);
+    const voucher = await Voucher.findOne({ code, isActive: true });
+    if (!voucher || orderTotal < voucher.minOrderTotal || (voucher.startDate && voucher.startDate > new Date()) || (voucher.endDate && voucher.endDate < new Date())) return res.status(400).json({ success: false, error: 'Voucher không hợp lệ hoặc không đủ điều kiện áp dụng.', code: 'VOUCHER_INVALID' });
+    const discountAmount = Math.min(voucher.discountAmount || orderTotal * voucher.discountPercent / 100, voucher.maxDiscount || Number.MAX_SAFE_INTEGER, orderTotal);
+    success(res, { isValid: true, discountAmount, finalTotal: Math.max(0, orderTotal - discountAmount), voucher: { code, discountPercent: voucher.discountPercent, maxDiscount: voucher.maxDiscount } });
+  } catch (error) { next(error); }
+});
+
+router.post('/orders', optionalAuth, async (req, res, next) => {
+  try {
+    const { items, customerName, customerPhone } = req.body;
+    if (!Array.isArray(items) || !items.length || !customerName || !customerPhone) return res.status(400).json({ success: false, error: 'Thông tin đơn hàng chưa đầy đủ.' });
+    const ids = [...new Set(items.map((item) => item.productId).filter(mongoose.isValidObjectId))];
+    const products = await Product.find({ _id: { $in: ids }, isAvailable: true }).lean();
+    const { normalizedItems, subtotal } = normalizeOrderItems(items, products);
+    const voucher = req.body.voucherCode ? await Voucher.findOne({ code: String(req.body.voucherCode).toUpperCase(), isActive: true }) : null;
+    if (req.body.voucherCode && (!voucher || subtotal < voucher.minOrderTotal || (voucher.startDate && voucher.startDate > new Date()) || (voucher.endDate && voucher.endDate < new Date()))) return res.status(400).json({ success: false, error: 'Voucher không hợp lệ hoặc không đủ điều kiện áp dụng.', code: 'VOUCHER_INVALID' });
+    const discount = voucher ? Math.min(voucher.discountAmount || subtotal * voucher.discountPercent / 100, voucher.maxDiscount || Number.MAX_SAFE_INTEGER, subtotal) : 0;
+    const shippingFee = req.body.orderType === 'DELIVERY' ? 15000 : 0;
+    const paymentMethod = String(req.body.paymentMethod || 'CASH').toUpperCase();
+    if (paymentMethod !== 'CASH') return res.status(400).json({ success: false, error: 'Thanh toán trực tuyến chưa được cấu hình. Vui lòng chọn tiền mặt.', code: 'PAYMENT_METHOD_UNAVAILABLE' });
+    const order = await Order.create({
+      customer: req.user?.id || null, branchId: req.body.branchId || '', orderType: req.body.orderType || 'TAKEAWAY', source: 'APP',
+      customerName, customerPhone, deliveryAddress: req.body.deliveryAddress || '', items: normalizedItems,
+      note: req.body.note || '',
+      subtotal, discount, shippingFee, finalTotal: subtotal - discount + shippingFee,
+      paymentMethod, paymentStatus: 'UNPAID', status: 'PENDING', statusTimeline: [{ status: 'PENDING', time: new Date() }],
+      voucherCode: voucher?.code || '', needCorporateInvoice: Boolean(req.body.needCorporateInvoice), corporateInvoiceInfo: req.body.corporateInvoiceInfo,
+    });
+    res.status(201).json({ success: true, message: 'Đơn hàng đã được tạo thành công.', data: { id: order.id, orderNumber: order.orderNumber, status: order.status, finalTotal: order.finalTotal, paymentMethod: order.paymentMethod, paymentStatus: order.paymentStatus, createdAt: order.createdAt } });
+  } catch (error) {
+    if (error.statusCode === 400) return res.status(400).json({ success: false, error: error.message, code: error.code });
+    next(error);
+  }
+});
+router.get('/orders/my-orders', requireAuth, async (req, res, next) => {
+  try { success(res, await Order.find({ customer: req.customer.id }).sort({ createdAt: -1 }).lean()); } catch (error) { next(error); }
+});
+router.patch('/orders/:id/cancel', requireAuth, async (req, res, next) => {
+  try {
+    const query = mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : { orderNumber: req.params.id };
+    const order = await Order.findOne({ ...query, customer: req.customer._id });
+    if (!order) return res.status(404).json({ success: false, error: 'Không tìm thấy đơn hàng của tài khoản này.', code: 'ORDER_NOT_FOUND' });
+    if (!['PENDING', 'SUBMITTED', 'CONFIRMED'].includes(order.status)) return res.status(409).json({ success: false, error: 'Đơn hàng đã được chuẩn bị và không thể hủy.', code: 'ORDER_CANNOT_CANCEL' });
+    order.status = 'CANCELLED';
+    order.statusTimeline.push({ status: 'CANCELLED', time: new Date() });
+    await order.save();
+    success(res, { id: order.id, orderNumber: order.orderNumber, status: order.status }, 'Đã hủy đơn hàng.');
+  } catch (error) { next(error); }
+});
+const devOnly = (req, res, next) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).json({ success: false, error: 'Không tìm thấy API endpoint.', code: 'NOT_FOUND' });
+  next();
+};
+
+router.patch('/dev/orders/:id/status', devOnly, requireAuth, async (req, res, next) => {
+  try {
+    const allowedStatuses = ['CONFIRMED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'COMPLETED'];
+    const status = String(req.body.status || '').toUpperCase();
+    if (!allowedStatuses.includes(status)) return res.status(400).json({ success: false, error: 'Trạng thái không hợp lệ. Cho phép: ' + allowedStatuses.join(', ') + '.', code: 'INVALID_ORDER_STATUS' });
+    const query = mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : { orderNumber: req.params.id };
+    const order = await Order.findOne({ ...query, customer: req.customer._id });
+    if (!order) return res.status(404).json({ success: false, error: 'Không tìm thấy đơn hàng của tài khoản này.', code: 'ORDER_NOT_FOUND' });
+    if (order.status === 'COMPLETED') return res.status(409).json({ success: false, error: 'Đơn đã hoàn tất và không thể đổi trạng thái.', code: 'ORDER_ALREADY_COMPLETED' });
+    order.status = status;
+    order.statusTimeline.push({ status, time: new Date() });
+    await order.save();
+    success(res, { id: order.id, orderNumber: order.orderNumber, status: order.status, statusTimeline: order.statusTimeline, createdAt: order.createdAt }, 'Đã cập nhật trạng thái đơn hàng.');
+  } catch (error) { next(error); }
+});
+
+router.get('/notifications', requireAuth, async (req, res, next) => {
+  try {
+    const notifications = await Notification.find({ customer: req.customer._id }).sort({ createdAt: -1 }).limit(100).lean();
+    success(res, notifications.map((item) => ({ id: String(item._id), title: item.title, message: item.message, type: item.type, orderId: item.orderId || '', isRead: item.isRead, timeLabel: item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '', actionLabel: item.type === 'order' ? 'Xem đơn hàng' : 'Xem thông báo', createdAt: item.createdAt })));
+  } catch (error) { next(error); }
+});
+router.patch('/notifications/:id/read', requireAuth, async (req, res, next) => {
+  try {
+    const notification = await Notification.findOneAndUpdate({ _id: req.params.id, customer: req.customer._id }, { isRead: true }, { new: true });
+    if (!notification) return res.status(404).json({ success: false, error: 'Không tìm thấy thông báo.', code: 'NOTIFICATION_NOT_FOUND' });
+    success(res, { id: String(notification._id), isRead: notification.isRead });
+  } catch (error) { next(error); }
+});
+router.patch('/notifications/read-all', requireAuth, async (req, res, next) => {
+  try {
+    const result = await Notification.updateMany({ customer: req.customer._id, isRead: false }, { isRead: true });
+    success(res, { modifiedCount: result.modifiedCount }, 'Đã đánh dấu tất cả thông báo là đã đọc.');
+  } catch (error) { next(error); }
+});
+router.get('/customers/me/addresses', requireAuth, (req, res) => success(res, req.customer.savedAddresses || []));
+router.put('/customers/me/addresses', requireAuth, async (req, res, next) => {
+  try {
+    const addresses = Array.isArray(req.body.addresses) ? req.body.addresses : [];
+    if (addresses.length > 10 || addresses.some((item) => !String(item.address || '').trim())) return res.status(400).json({ success: false, error: 'Địa chỉ không hợp lệ (tối đa 10 địa chỉ).', code: 'VALIDATION_ERROR' });
+    req.customer.savedAddresses = addresses.map((item, index) => ({ label: String(item.label || 'Nhà').trim(), address: String(item.address).trim(), isDefault: index === 0 }));
+    await req.customer.save();
+    success(res, req.customer.savedAddresses, 'Đã lưu địa chỉ.');
+  } catch (error) { next(error); }
+});
+
+router.post('/dev/notifications', devOnly, requireAuth, async (req, res, next) => {
+  try {
+    const title = String(req.body.title || '').trim();
+    const message = String(req.body.message || '').trim();
+    const type = String(req.body.type || 'promo').toLowerCase();
+    if (!title || !message) return res.status(400).json({ success: false, error: 'Cần nhập title và message.', code: 'VALIDATION_ERROR' });
+    if (!['order', 'promo', 'system'].includes(type)) return res.status(400).json({ success: false, error: 'type phải là order, promo hoặc system.', code: 'VALIDATION_ERROR' });
+    const notification = await Notification.create({ customer: req.customer._id, title, message, type, orderId: String(req.body.orderId || ''), isRead: false });
+    res.status(201).json({ success: true, message: 'Đã tạo thông báo thử nghiệm.', data: { id: String(notification._id), title, message, type, orderId: notification.orderId, isRead: false, createdAt: notification.createdAt } });
+  } catch (error) { next(error); }
+});
+
+router.get('/orders/:id', requireAuth, async (req, res, next) => {
+  try {
+    const query = mongoose.isValidObjectId(req.params.id) ? { _id: req.params.id } : { orderNumber: req.params.id };
+    const order = await Order.findOne({ ...query, customer: req.customer._id }).lean();
+    if (!order) return res.status(404).json({ success: false, error: 'Không tìm thấy đơn hàng.' });
+    success(res, { ...order, id: String(order._id), deliveryProgress: null, invoiceDetails: null });
+  } catch (error) { next(error); }
+});
+router.get('/customers/:id', requireAuth, async (req, res) => {
+  if (req.params.id !== req.customer.id) return res.status(403).json({ success: false, error: 'Không có quyền xem tài khoản này.' });
+  success(res, { ...safeCustomer(req.customer), pointsHistory: req.customer.pointsHistory });
+});
+router.post('/customers/register-device', requireAuth, async (req, res, next) => {
+  try {
+    const { fcmToken, platform, deviceModel } = req.body;
+    if (!fcmToken) return res.status(400).json({ success: false, error: 'Thiếu FCM token.' });
+    req.customer.devices = req.customer.devices.filter((device) => device.fcmToken !== fcmToken);
+    req.customer.devices.push({ fcmToken, platform, deviceModel });
+    await req.customer.save();
+    success(res, { registered: true });
+  } catch (error) { next(error); }
+});
+
+router.get('/payments/mqr/banks', (req, res) => success(res, [
+  { bankCode: 'VCB', bankName: 'Vietcombank', schemeUrl: 'vcb://' }, { bankCode: 'MB', bankName: 'MBBank', schemeUrl: 'mbmobile://' },
+  { bankCode: 'TCB', bankName: 'Techcombank', schemeUrl: 'techcombank://' }, { bankCode: 'VPB', bankName: 'VPBank', schemeUrl: 'vpbank://' },
+  { bankCode: 'MOMO', bankName: 'MoMo', schemeUrl: 'momo://' }, { bankCode: 'ZALOPAY', bankName: 'ZaloPay', schemeUrl: 'zalopay://' },
+]));
+router.post('/payments/mqr/generate', async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.body.orderId);
+    if (!order) return res.status(404).json({ success: false, error: 'Không tìm thấy đơn hàng.' });
+    return res.status(503).json({ success: false, error: 'VietQR generation requires bank account settings and an approved QR provider connection.', code: 'PAYMENT_NOT_CONFIGURED' });
+  } catch (error) { next(error); }
+});
+router.get('/payments/mqr/status/:orderId', async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ success: false, error: 'Không tìm thấy đơn hàng.' });
+    success(res, { orderId: order.id, paymentStatus: order.paymentStatus, paidAt: order.paymentStatus === 'PAID' ? order.updatedAt : null, transactionId: order.paymentTransactionId || null });
+  } catch (error) { next(error); }
+});
+
+router.get('/invoices/tax-lookup/:taxCode', (req, res) => res.status(503).json({ ok: false, error: 'Tra cứu MST cần cấu hình nhà cung cấp dữ liệu thuế.' }));
+router.get('/invoices/:orderId/xml', async (req, res, next) => {
+  try { const order = await Order.findById(req.params.orderId); if (!order) return res.status(404).json({ ok: false, error: 'Không tìm thấy hóa đơn.' }); return res.status(503).json({ ok: false, error: 'Hóa đơn điện tử chưa được phát hành.' }); }
+  catch (error) { next(error); }
+});
+router.get('/invoices/:orderId/print', async (req, res, next) => {
+  try { const order = await Order.findById(req.params.orderId); if (!order) return res.status(404).json({ success: false, error: 'Không tìm thấy hóa đơn.' }); return res.status(503).json({ success: false, error: 'Hóa đơn điện tử chưa được phát hành.' }); }
+  catch (error) { next(error); }
+});
+
+module.exports = router;
