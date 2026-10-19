@@ -26,7 +26,11 @@ class MainBinding extends Bindings {
       () => ApiProvider(
         baseUrl: const String.fromEnvironment('API_BASE_URL').isNotEmpty
             ? const String.fromEnvironment('API_BASE_URL')
-            : (kIsWeb ? 'http://localhost:5000' : 'http://10.0.2.2:5000'),
+            : (kIsWeb
+                ? 'http://localhost:5000'
+                : (defaultTargetPlatform == TargetPlatform.iOS
+                    ? 'http://127.0.0.1:5000'
+                    : 'http://10.0.2.2:5000')),
       ),
     );
 
